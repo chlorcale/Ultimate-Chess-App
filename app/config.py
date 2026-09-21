@@ -1,12 +1,27 @@
 from pathlib import Path
 import os
+import sys
+
+
+def get_runtime_root() -> Path:
+    """
+    Root directory for both:
+    - normal Python execution
+    - PyInstaller executable
+    """
+
+    if getattr(sys, "frozen", False):
+        return Path(sys._MEIPASS)
+
+    return Path(__file__).resolve().parents[1]
+
+
+PROJECT_ROOT = get_runtime_root()
 
 
 # ============================================================
-# PATHS
+# STOCKFISH
 # ============================================================
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 STOCKFISH_PATH = (
     PROJECT_ROOT
@@ -15,11 +30,16 @@ STOCKFISH_PATH = (
     / "stockfish.exe"
 )
 
+
+# ============================================================
+# CHROME
+# ============================================================
+
 CHROME_PROFILE_DIR = (
     Path(
         os.environ.get(
             "LOCALAPPDATA",
-            str(Path.home())
+            str(Path.home()),
         )
     )
     / "ChessMoveMonitorChrome"
@@ -27,7 +47,7 @@ CHROME_PROFILE_DIR = (
 
 
 # ============================================================
-# CHROME / CDP
+# CDP
 # ============================================================
 
 CDP_HOST = "127.0.0.1"
@@ -44,7 +64,7 @@ MOVE_POLL_MS = 300
 
 
 # ============================================================
-# STOCKFISH
+# STOCKFISH SETTINGS
 # ============================================================
 
 ENGINE_TIME = 0.40
@@ -56,7 +76,7 @@ ENGINE_HASH_MB = 128
 # UI
 # ============================================================
 
-WINDOW_WIDTH = 430
-WINDOW_HEIGHT = 360
+WINDOW_WIDTH = 470
+WINDOW_HEIGHT = 390
 
 WINDOW_TITLE = "Ultimate Stockfish Reader"

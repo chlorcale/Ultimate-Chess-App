@@ -4,7 +4,7 @@ from pathlib import Path
 
 import chess
 import chess.engine
-
+import subprocess
 
 class StockfishEngine:
     """
@@ -33,7 +33,8 @@ class StockfishEngine:
         print(f"[STOCKFISH] Loading: {self.path}")
 
         self.engine = chess.engine.SimpleEngine.popen_uci(
-            str(self.path)
+            str(self.path),
+            creationflags=subprocess.CREATE_NO_WINDOW,
         )
 
         self.time_limit = float(time_limit)
