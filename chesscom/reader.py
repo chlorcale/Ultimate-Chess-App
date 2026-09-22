@@ -3,47 +3,22 @@ from __future__ import annotations
 from browser.cdp import CDP
 
 
+# ============================================================
+# JAVASCRIPT
+# ============================================================
+
 READ_POSITION_JS = r"""
 (() => {
 
     // ========================================================
-    // FIND MOVE LIST ROOT
-    // ========================================================
-
-    const rootSelectors = [
-        "vertical-move-list",
-        "wc-move-list",
-        ".move-list-component",
-        "[class*='move-list']"
-    ];
-
-    let root = null;
-
-    for (const selector of rootSelectors) {
-
-        const el = document.querySelector(selector);
-
-        if (el) {
-            root = el;
-            break;
-        }
-    }
-
-
-    // ========================================================
-    // BOARD / GAME
+    // BOARD / FEN
     // ========================================================
 
     const board =
         document.querySelector("wc-chess-board") ||
         document.querySelector("chess-board");
 
-    const game = board?.game || null;
-
-
-    // ========================================================
-    // FEN
-    // ========================================================
+    const game = board?.game;
 
     let fen = "";
 
@@ -51,400 +26,150 @@ READ_POSITION_JS = r"""
         game &&
         typeof game.getFEN === "function"
     ) {
-
         try {
-            fen = game.getFEN();
-        } catch (e) {
-            console.warn(
-                "[Reader] getFEN failed:",
-                e
-            );
+            fen = game.getFEN() || "";
+        } catch (_) {
+            fen = "";
         }
     }
 
 
     // ========================================================
-    // MOVE PARSER
+    // FIND MOVE LIST
     // ========================================================
 
-    function looksLikeSAN(value) {
-
-        if (!value) {
-            return false;
-        }
-
-        const text = String(value).trim();
-
-        return /^(?:O-O-O|O-O|[KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?)$/.test(
-            text
-        );
-    }
-
-
-    function cleanMove(value) {
-
-        if (!value) {
-            return "";
-        }
-
-        let text = String(value)
-            .replace(/\u00a0/g, " ")
-            .replace(/\s+/g, " ")
-            .trim();
-
-        // Remove move number
-        text = text.replace(
-            /^\d+\.(?:\.\.)?\s*/,
-            ""
-        );
-
-        // Remove common annotation symbols
-        text = text.replace(
-            /[!?]+$/,
-            ""
-        );
-
-        return text;
-    }
+    const root =
+        document.querySelector("vertical-move-list") ||
+        document.querySelector("wc-move-list") ||
+        document.querySelector(".move-list-component") ||
+        document.querySelector("[class*='move-list']");
 
 
     // ========================================================
-    // METHOD A:
-    // data-san / data-uci
+    // CLEAN
     // ========================================================
 
-    function readDataAttributes(container) {
+    const clean = value => String(value || "")
+        .replace(/\u00a0/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
 
-        if (!container) {
-            return [];
+
+    // ========================================================
+    // METHOD 1:
+    // data-san
+    // ========================================================
+
+    let moves = [];
+
+    if (root) {
+
+        const sanNodes =
+            root.querySelectorAll("[data-san]");
+
+        if (sanNodes.length) {
+
+            moves = Array.from(
+                sanNodes,
+                node =>
+                    clean(
+                        node.getAttribute("data-san")
+                    )
+            ).filter(Boolean);
         }
-
-        const selectors = [
-            "[data-san]",
-            "[data-uci]"
-        ];
-
-        for (const selector of selectors) {
-
-            const nodes = [
-                ...container.querySelectorAll(selector)
-            ];
-
-            if (!nodes.length) {
-                continue;
-            }
-
-            const result = [];
-
-            for (const node of nodes) {
-
-                let value =
-                    node.dataset?.san ||
-                    node.dataset?.uci ||
-                    "";
-
-                value = cleanMove(value);
-
-                if (!value) {
-                    continue;
-                }
-
-                if (
-                    !result.length ||
-                    result[result.length - 1] !== value
-                ) {
-                    result.push(value);
-                }
-            }
-
-            if (result.length) {
-                return result;
-            }
-        }
-
-        return [];
     }
 
 
     // ========================================================
-    // METHOD B:
-    // move text elements
+    // METHOD 2:
+    // TEXT ELEMENTS
     // ========================================================
 
-    function readMoveElements(container) {
+    if (!moves.length && root) {
 
-        if (!container) {
-            return [];
-        }
-
-        const selectors = [
-            ".move-text-component",
-            ".move-text",
-            ".node-highlight-content",
-            "[class*='move-text']",
+        const nodes = root.querySelectorAll(
+            ".move-text-component, " +
+            ".move-text, " +
+            ".node-highlight-content, " +
+            "[class*='move-text'], " +
             "[class*='node-san']"
-        ];
+        );
 
-        for (const selector of selectors) {
+        if (nodes.length) {
 
-            const nodes = [
-                ...container.querySelectorAll(selector)
-            ];
-
-            if (!nodes.length) {
-                continue;
-            }
-
-            const result = [];
-
-            for (const node of nodes) {
-
-                let value =
-                    node.textContent || "";
-
-                value = cleanMove(value);
-
-                if (!value) {
-                    continue;
-                }
-
-                if (!result.length ||
-                    result[result.length - 1] !== value) {
-
-                    result.push(value);
-                }
-            }
-
-            if (result.length) {
-                return result;
-            }
+            moves = Array.from(
+                nodes,
+                node => clean(node.textContent)
+            ).filter(Boolean);
         }
-
-        return [];
     }
 
 
     // ========================================================
-    // METHOD C:
-    // PARSE INNER TEXT
+    // METHOD 3:
+    // PARSE MOVE LIST TEXT
     //
     // Example:
-    //
     // 1. e4 g6
     // 2. d4 Bg7
     // 3. e5 d6
     // ========================================================
 
-    function parseMoveText(text) {
+    if (!moves.length && root) {
 
-        if (!text) {
-            return [];
-        }
+        const text = clean(
+            root.innerText ||
+            root.textContent ||
+            ""
+        );
 
-        const result = [];
+        /*
+         * Match complete move-number groups.
+         *
+         * 1. e4 e5
+         * 2. Nf3 Nc6
+         *
+         */
 
-        const lines = String(text)
-            .replace(/\r/g, "")
-            .split("\n")
-            .map(line =>
-                line
-                    .replace(/\u00a0/g, " ")
-                    .replace(/\s+/g, " ")
-                    .trim()
-            )
-            .filter(Boolean);
+        const matches = text.matchAll(
+            /(\d+)\.\s*([^\s]+)(?:\s+([^\s]+))?/g
+        );
 
+        for (const match of matches) {
 
-        // ----------------------------------------------------
-        // First try line-by-line
-        // ----------------------------------------------------
+            const white = clean(match[2]);
+            const black = clean(match[3]);
 
-        for (const line of lines) {
-
-            const match = line.match(
-                /^\s*(\d+)\.\s+([^\s]+)(?:\s+([^\s]+))?\s*$/
-            );
-
-            if (!match) {
-                continue;
+            if (white) {
+                moves.push(white);
             }
 
-            const white =
-                cleanMove(match[2]);
-
-            const black =
-                cleanMove(match[3] || "");
-
-
-            if (
-                looksLikeSAN(white)
-            ) {
-                result.push(white);
-            }
-
-            if (
-                black &&
-                looksLikeSAN(black)
-            ) {
-                result.push(black);
-            }
-        }
-
-
-        if (result.length) {
-            return result;
-        }
-
-
-        // ----------------------------------------------------
-        // Second try:
-        // "1. e4 g6 2. d4 Bg7 ..."
-        // all on one line
-        // ----------------------------------------------------
-
-        const normalized = String(text)
-            .replace(/\u00a0/g, " ")
-            .replace(/\s+/g, " ")
-            .trim();
-
-
-        const pattern =
-            /(\d+)\.\s*([A-Za-z0-9+#=x-]+)(?:\s+([A-Za-z0-9+#=x-]+))?/g;
-
-
-        let match;
-
-
-        while (
-            (match = pattern.exec(normalized)) !== null
-        ) {
-
-            const white =
-                cleanMove(match[2]);
-
-            const black =
-                cleanMove(match[3] || "");
-
-
-            if (
-                looksLikeSAN(white)
-            ) {
-                result.push(white);
-            }
-
-
-            if (
-                black &&
-                looksLikeSAN(black)
-            ) {
-                result.push(black);
-            }
-        }
-
-
-        return result;
-    }
-
-
-    // ========================================================
-    // READ MOVES
-    // ========================================================
-
-    let moves = [];
-
-    let rawMoveText = "";
-
-
-    if (root) {
-
-        // A
-        moves = readDataAttributes(root);
-
-
-        // B
-        if (!moves.length) {
-
-            moves =
-                readMoveElements(root);
-        }
-
-
-        // C
-        if (!moves.length) {
-
-            rawMoveText =
-                root.innerText ||
-                root.textContent ||
-                "";
-
-            moves =
-                parseMoveText(
-                    rawMoveText
-                );
-        }
-    }
-
-
-    // ========================================================
-    // LAST RESORT:
-    // Try the whole document around move-list components
-    // ========================================================
-
-    if (!moves.length) {
-
-        const candidateRoots = [
-            ...document.querySelectorAll(
-                "vertical-move-list, wc-move-list, .move-list-component"
-            )
-        ];
-
-
-        for (const candidate of candidateRoots) {
-
-            const text =
-                candidate.innerText ||
-                candidate.textContent ||
-                "";
-
-            const parsed =
-                parseMoveText(text);
-
-            if (parsed.length) {
-
-                moves = parsed;
-
-                rawMoveText = text;
-
-                break;
+            if (black) {
+                moves.push(black);
             }
         }
     }
 
 
     // ========================================================
-    // DEDUPLICATE
+    // CLEAN DUPLICATES
     // ========================================================
 
-    const cleanedMoves = [];
+    if (moves.length > 1) {
 
-    for (const move of moves) {
+        const cleaned = [];
 
-        const clean =
-            cleanMove(move);
+        for (const move of moves) {
 
-        if (!clean) {
-            continue;
+            if (
+                !cleaned.length ||
+                cleaned[cleaned.length - 1] !== move
+            ) {
+                cleaned.push(move);
+            }
         }
 
-        if (
-            !cleanedMoves.length ||
-            cleanedMoves[
-                cleanedMoves.length - 1
-            ] !== clean
-        ) {
-
-            cleanedMoves.push(clean);
-        }
+        moves = cleaned;
     }
 
 
@@ -453,26 +178,18 @@ READ_POSITION_JS = r"""
     // ========================================================
 
     return {
-
         url: location.href,
-
         fen,
-
-        moves: cleanedMoves,
-
-        hasBoard: !!board,
-
-        hasGame: !!game,
-
-        moveRootFound: !!root,
-
-        moveText: rawMoveText
-
+        moves
     };
 
 })()
 """
 
+
+# ============================================================
+# READER
+# ============================================================
 
 class ChessComReader:
 
@@ -481,6 +198,16 @@ class ChessComReader:
         cdp: CDP,
     ):
         self.cdp = cdp
+
+        # Python-side cache
+        self._last_url = ""
+        self._last_fen = ""
+        self._last_moves: list[str] = []
+
+
+    # ========================================================
+    # READ
+    # ========================================================
 
     def read(self) -> dict:
 
@@ -494,10 +221,67 @@ class ChessComReader:
                 "url": "",
                 "fen": "",
                 "moves": [],
-                "hasBoard": False,
-                "hasGame": False,
-                "moveRootFound": False,
-                "moveText": "",
             }
 
-        return result
+
+        url = result.get(
+            "url",
+            ""
+        )
+
+        fen = result.get(
+            "fen",
+            ""
+        )
+
+        moves = result.get(
+            "moves",
+            []
+        )
+
+
+        if not isinstance(moves, list):
+
+            moves = []
+
+
+        moves = [
+            str(move).strip()
+            for move in moves
+            if str(move).strip()
+        ]
+
+
+        # ----------------------------------------------------
+        # Python-side cache
+        # ----------------------------------------------------
+
+        self._last_url = url
+        self._last_fen = fen
+        self._last_moves = moves
+
+
+        return {
+            "url": url,
+            "fen": fen,
+            "moves": moves,
+        }
+
+
+    # ========================================================
+    # LAST DATA
+    # ========================================================
+
+    @property
+    def last_url(self) -> str:
+        return self._last_url
+
+
+    @property
+    def last_fen(self) -> str:
+        return self._last_fen
+
+
+    @property
+    def last_moves(self) -> list[str]:
+        return list(self._last_moves)
